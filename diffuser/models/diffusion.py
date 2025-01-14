@@ -9,6 +9,7 @@ from .helpers import (
     cosine_beta_schedule,
     extract,
     apply_conditioning,
+    apply_conditioning_sa,
     Losses,
 )
 
@@ -191,6 +192,44 @@ class GaussianDiffusion(nn.Module):
         shape = (batch_size, horizon, self.transition_dim)
 
         return self.p_sample_loop(shape, cond, **sample_kwargs)
+    
+    
+    @torch.no_grad()
+    def p_sample_loop_sa(self, shape, cond, verbose=True, return_chain=False, sample_fn=default_sample_fn, **sample_kwargs):
+        device = self.betas.device
+
+        batch_size = shape[0]
+        x = torch.randn(shape, device=device)
+        x = apply_conditioning_sa(x, cond, self.action_dim)
+
+        chain = [x] if return_chain else None
+
+        progress = utils.Progress(self.n_timesteps) if verbose else utils.Silent()
+        for i in reversed(range(0, self.n_timesteps)):
+            t = make_timesteps(batch_size, i, device)
+            x, values = sample_fn(self, x, cond, t, **sample_kwargs)
+            x = apply_conditioning_sa(x, cond, self.action_dim)
+
+            progress.update({'t': i, 'vmin': values.min().item(), 'vmax': values.max().item()})
+            if return_chain: chain.append(x)
+
+        progress.stamp()
+
+        x, values = sort_by_values(x, values)
+        if return_chain: chain = torch.stack(chain, dim=1)
+        return Sample(x, values, chain)
+
+    @torch.no_grad()
+    def conditional_sample_sa(self, cond, n_samples, horizon=None, **sample_kwargs):
+        '''
+            conditions : [ (time, (state, action)), ... ]
+        '''
+        device = self.betas.device
+        batch_size = n_samples
+        horizon = horizon or self.horizon
+        shape = (batch_size, horizon, self.transition_dim)
+
+        return self.p_sample_loop_sa(shape, cond, **sample_kwargs)
 
     #------------------------------------------ training ------------------------------------------#
 

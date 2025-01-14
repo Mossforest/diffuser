@@ -118,6 +118,7 @@ class TemporalUnet(nn.Module):
         '''
 
         x = einops.rearrange(x, 'b h t -> b t h')
+        x_shape = x.shape
 
         t = self.time_mlp(time)
         h = []
@@ -132,16 +133,19 @@ class TemporalUnet(nn.Module):
         x = self.mid_block1(x, t)
         x = self.mid_attn(x)
         x = self.mid_block2(x, t)
+        
 
         for resnet, resnet2, attn, upsample in self.ups:
             x = torch.cat((x, h.pop()), dim=1)
             x = resnet(x, t)
             x = resnet2(x, t)
             x = attn(x)
-            x = upsample(x)
+            if not x.shape[-1] == h[-1].shape[-1]:
+                x = upsample(x)
 
         x = self.final_conv(x)
 
+        x = x[:, :, :x_shape[-1]]  # clip out extra padding
         x = einops.rearrange(x, 'b t h -> b h t')
         return x
 

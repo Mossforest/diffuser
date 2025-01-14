@@ -144,6 +144,12 @@ def apply_conditioning(x, conditions, action_dim):
         x[:, t, action_dim:] = val.clone()
     return x
 
+def apply_conditioning_sa(x, conditions, action_dim):
+    for t, val in conditions.items():
+        x[:, t, action_dim:] = val[0].clone()
+        x[:, t, :action_dim] = val[1].clone()
+    return x
+
 
 #-----------------------------------------------------------------------------#
 #---------------------------------- losses -----------------------------------#
