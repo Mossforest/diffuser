@@ -158,6 +158,15 @@ def apply_conditioning_atraj(x, conditions, action_dim):
     return x
 
 
+def apply_conditioning_sa_traj(x, conditions, action_dim):
+    for t, val in conditions.items():
+        if val[0] is not None:
+            x[:, t, action_dim:] = val[0].clone()  # state
+        if val[1] is not None:
+            x[:, t, :action_dim] = val[1].clone()
+    return x
+
+
 #-----------------------------------------------------------------------------#
 #---------------------------------- losses -----------------------------------#
 #-----------------------------------------------------------------------------#
