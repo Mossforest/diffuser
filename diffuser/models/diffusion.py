@@ -341,10 +341,10 @@ class GaussianDiffusion(nn.Module):
         noise = torch.randn_like(x_start)
 
         x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
-        x_noisy = apply_conditioning(x_noisy, cond, self.action_dim)
+        x_noisy = apply_conditioning_sa_traj(x_noisy, cond, self.action_dim)
 
         x_recon = self.model(x_noisy, cond, t)
-        x_recon = apply_conditioning(x_recon, cond, self.action_dim)
+        x_recon = apply_conditioning_sa_traj(x_recon, cond, self.action_dim)
 
         assert noise.shape == x_recon.shape
 
@@ -353,12 +353,12 @@ class GaussianDiffusion(nn.Module):
         else:
             loss, info = self.loss_fn(x_recon, x_start)
 
-        return loss, info
+        return loss
 
-    def loss(self, x, *args):
-        batch_size = len(x)
-        t = torch.randint(0, self.n_timesteps, (batch_size,), device=x.device).long()
-        return self.p_losses(x, *args, t)
+    def loss(self, traj, cond):
+        batch_size = len(traj)
+        t = torch.randint(0, self.n_timesteps, (batch_size,), device=traj.device).long()
+        return self.p_losses(traj, cond=cond, t=t)
 
     def forward(self, cond, *args, **kwargs):
         return self.conditional_sample(cond, *args, **kwargs)
