@@ -11,7 +11,6 @@ from .helpers import (
     apply_conditioning,
     apply_conditioning_sa,
     apply_conditioning_atraj,
-    apply_conditioning_sa_traj,
     Losses,
 )
 
@@ -254,18 +253,20 @@ class GaussianDiffusion(nn.Module):
 
         batch_size = shape[0]
         x = torch.randn(shape, device=device)
-        x = apply_conditioning_sa_traj(x, cond, self.action_dim)
 
-        chain = [x] if return_chain else None
+        chain = [] if return_chain else None
 
         progress = utils.Progress(self.n_timesteps) if verbose else utils.Silent()
         for i in reversed(range(0, self.n_timesteps)):
             t = make_timesteps(batch_size, i, device)
+            x = self.apply_conditioning_sa_traj(x, cond, self.action_dim, t0=False, sample_t=t)
+            if return_chain: chain.append(x)
             x, values = sample_fn(self, x, cond, t, **sample_kwargs)
-            x = apply_conditioning_sa_traj(x, cond, self.action_dim)
 
             progress.update({'t': i, 'vmin': values.min().item(), 'vmax': values.max().item()})
-            if return_chain: chain.append(x)
+        
+        x = self.apply_conditioning_sa_traj(x, cond, self.action_dim, t0=True)
+        if return_chain: chain.append(x)
 
         progress.stamp()
 
@@ -273,6 +274,25 @@ class GaussianDiffusion(nn.Module):
         if return_chain: chain = torch.stack(chain, dim=1)
         return Sample(x, values, chain)
 
+
+    def apply_conditioning_sa_traj(self, x, conditions, action_dim, t0=False, sample_t=None, noise=None):
+        
+        def apply_fusion(val, tt, noise, shape):
+            if t0:
+                return val.clone()
+            if not noise:
+                noise = torch.randn_like(val)
+            return (extract(self.sqrt_alphas_cumprod, tt, shape) * val.clone() + 
+                    extract(self.sqrt_one_minus_alphas_cumprod, tt, shape) * noise)
+        
+        for t, val in conditions.items():
+            if val[0] is not None:  # state
+                k = apply_fusion(val[0], sample_t, noise, x[:, t, action_dim:].shape)
+                x[:, t, action_dim:] = k
+                # x[:, t, action_dim:] = apply_fusion(val[0], t, noise, x[:, t, action_dim:].shape)
+            if val[1] is not None:
+                x[:, t, :action_dim] = apply_fusion(val[1], sample_t, noise, x[:, t, :action_dim].shape)
+        return x
 
 
     @torch.no_grad()
@@ -341,10 +361,10 @@ class GaussianDiffusion(nn.Module):
         noise = torch.randn_like(x_start)
 
         x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
-        x_noisy = apply_conditioning_sa_traj(x_noisy, cond, self.action_dim)
+        x_noisy = self.apply_conditioning_sa_traj(x_noisy, cond, self.action_dim, sample_t=t)
 
         x_recon = self.model(x_noisy, cond, t)
-        x_recon = apply_conditioning_sa_traj(x_recon, cond, self.action_dim)
+        x_recon = self.apply_conditioning_sa_traj(x_recon, cond, self.action_dim, sample_t=t)
 
         assert noise.shape == x_recon.shape
 
